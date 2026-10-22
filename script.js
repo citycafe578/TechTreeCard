@@ -101,6 +101,7 @@ function setPreviewMode(enabled) {
     document.getElementById('export-btn').style.display = enabled ? 'none' : 'block';
     document.getElementById('import-btn').style.display = enabled ? 'none' : 'block';
     document.getElementById('info-panel').style.display = 'none';
+    updateQuickSave();
 }
 
 function isValidCardData(data) {
@@ -388,6 +389,7 @@ function parseAndRenderData(savedDataStr) {
         createNodeMesh(id, parentIds, x, y, z, data.title || data.t || '', data.desc || data.d || '', data.tags || data.tg || "", data.category || 'skill', data.level || 2);
     });
     updateIdentityCard();
+    if (typeof scheduleAutoFit === 'function') scheduleAutoFit();
 }
 
 async function loadSkills() {
@@ -399,6 +401,7 @@ async function loadSkills() {
             if (!isValidCardData(cardData)) throw new Error('Invalid card data');
             parseAndRenderData(JSON.stringify(cardData));
             currentViewingCard = { data: cardData, sourceUrl: window.location.href, sourceType: 'link' };
+            updateQuickSave();
             document.getElementById('preview-btn').style.display = 'none';
             return;
         } catch (e) {
@@ -521,12 +524,35 @@ function cardTags(card) {
     return tags.map(tag => String(tag).trim()).filter(Boolean);
 }
 
+function showToast(message) {
+    let toast = document.getElementById('toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'toast';
+        toast.setAttribute('role', 'status');
+        document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add('show');
+    clearTimeout(showToast.timer);
+    showToast.timer = setTimeout(() => toast.classList.remove('show'), 2200);
+}
+
+// "Save Card" lives in the top-right bar so it is always one tap away while viewing someone's card.
+function updateQuickSave() {
+    const quick = document.getElementById('save-card-quick-btn');
+    if (quick) quick.style.display = isPreviewMode && currentViewingCard ? 'block' : 'none';
+    setSaveCardButtonState();
+}
+
 function setSaveCardButtonState() {
     const button = document.getElementById('save-card-btn');
     if (!button) return;
     const id = currentViewingCard?.id || currentViewingCard?.data?.id || currentViewingCard?.sourceUrl;
     const saved = !!id && getCardBook().some(card => card.id === id);
     button.innerText = saved ? 'Update Saved Card' : 'Save This Card';
+    const quick = document.getElementById('save-card-quick-btn');
+    if (quick) quick.innerText = saved ? 'Saved ✓' : 'Save Card';
 }
 
 function cardName(card) {
@@ -625,6 +651,9 @@ function saveCurrentCardToBook() {
     if (!writeCardBook(cards)) return;
     const button = document.getElementById('save-card-btn');
     button.innerText = 'Card Saved';
+    const quick = document.getElementById('save-card-quick-btn');
+    if (quick) quick.innerText = 'Saved ✓';
+    showToast('Saved to your Cards book');
     setTimeout(setSaveCardButtonState, 1500);
     renderCardBook();
 }
@@ -640,6 +669,15 @@ document.getElementById('card-book-overlay').addEventListener('click', event => 
     if (event.target.id === 'card-book-overlay') event.currentTarget.style.display = 'none';
 });
 document.getElementById('save-card-btn').addEventListener('click', saveCurrentCardToBook);
+document.getElementById('save-card-quick-btn').addEventListener('click', saveCurrentCardToBook);
+document.getElementById('fit-view-btn').addEventListener('click', () => { fitView(); closeMenu(); });
+document.getElementById('close-panel-btn').addEventListener('click', () => {
+    const panel = document.getElementById('info-panel');
+    panel.style.opacity = '0';
+    setTimeout(() => { if (panel.style.opacity === '0') panel.style.display = 'none'; }, 150);
+    currentNodeData = null;
+    updateSelectionVisual();
+});
 
 document.getElementById('export-btn').addEventListener('click', () => {
     const file = new Blob([JSON.stringify(buildExportData())], { type: 'application/json' });
@@ -731,7 +769,7 @@ document.getElementById('save-btn').addEventListener('click', () => {
         profileData.imgUrl = document.getElementById('profile-img-url').value.trim(); // keep empty instead of saving a placeholder URL
         updateIdentityCard();
     } else if (currentNodeData) {
-        const selectedParentOptions = Array.from(document.getElementById('node-parent').selectedOptions).map(option => option.value);
+        const selectedParentOptions = Array.from(document.querySelectorAll('#node-parent input:checked')).map(box => box.value);
         currentNodeData.parentIds = selectedParentOptions.length > 0 ? selectedParentOptions : ['center'];
         
         currentNodeData.title = document.getElementById('node-title').value;

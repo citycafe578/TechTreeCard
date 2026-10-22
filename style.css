@@ -462,3 +462,83 @@
             .modal-actions { flex-direction: column-reverse; }
             .modal-actions button { width: 100%; }
         }
+
+        :root { --panel-solid: #101010; }
+        [data-theme="light"] { --panel-solid: #ffffff; }
+
+        /* ---- dependencies as a checklist (works with touch, no Ctrl/Cmd needed) ---- */
+        #node-parent.checklist {
+            max-height: 176px; overflow-y: auto; margin: 4px 0 16px;
+            border: 1px solid var(--border-color); background: var(--bg-color); scrollbar-width: thin;
+        }
+        .check-row {
+            display: flex; align-items: center; gap: 10px; margin: 0; padding: 9px 12px;
+            font-size: 14px; color: var(--text-color); cursor: pointer; border-bottom: 1px solid var(--border-color);
+        }
+        .check-row:last-child { border-bottom: 0; }
+        .check-row:hover { background: var(--btn-hover); }
+        .check-row input { width: 20px; height: 20px; margin: 0; padding: 0; flex: 0 0 auto; accent-color: var(--heading-color); }
+        .check-row span { overflow-wrap: anywhere; }
+
+        /* ---- info panel: close button, sticky action bar, read-only view ---- */
+        #info-panel, #info-panel.is-mobile-layout { padding: var(--pad, 30px); }
+        #close-panel-btn {
+            position: sticky; top: 0; float: right; z-index: 3; width: 36px; height: 36px; padding: 0;
+            margin: -10px -10px 0 8px; font-size: 22px; line-height: 1; background: var(--panel-solid);
+        }
+        #panel-actions {
+            position: sticky; bottom: calc(var(--pad, 30px) * -1); z-index: 2; clear: both;
+            margin: 12px calc(var(--pad, 30px) * -1) calc(var(--pad, 30px) * -1);
+            padding: 2px var(--pad, 30px) var(--pad, 30px); background: var(--panel-solid);
+            border-top: 1px solid var(--border-color);
+        }
+        .ro-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: -8px 0 14px; }
+        .ro-badges span { padding: 4px 10px; font-size: 12px; border: 1px solid var(--border-color); color: var(--heading-color); }
+        .ro-desc { margin: 0 0 16px; line-height: 1.7; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-color); }
+        .ro-meta { margin: 12px 0 0; font-size: 13px; color: var(--text-color); }
+        .tag-pill.static { cursor: default; }
+        .ro-profile-head { display: flex; gap: 14px; align-items: center; margin-bottom: 14px; }
+        #ro-avatar { width: 72px; height: 72px; object-fit: cover; border: 1px solid var(--border-color); background: #222; flex: 0 0 auto; }
+        #ro-name { font-size: 20px; color: var(--heading-color); overflow-wrap: anywhere; }
+        #ro-link { color: #8db9d4; font-size: 14px; overflow-wrap: anywhere; }
+
+        #toast {
+            position: fixed; left: 50%; bottom: 28px; z-index: 1000; transform: translate(-50%, 16px);
+            padding: 10px 18px; font-size: 14px; color: var(--heading-color); background: var(--panel-bg);
+            border: 1px solid var(--border-color); box-shadow: 0 12px 28px rgba(0,0,0,0.3);
+            opacity: 0; pointer-events: none; transition: opacity 200ms ease, transform 200ms ease;
+        }
+        #toast.show { opacity: 1; transform: translate(-50%, 0); }
+        #save-card-quick-btn { color: #cc9933; border-color: rgba(204, 153, 51, 0.45); }
+
+        @media (max-width: 1024px) { #info-panel, #info-panel.is-mobile-layout { --pad: 24px; } }
+
+        /* ---- phones / touch screens: bigger targets, bigger text ---- */
+        @media (max-width: 768px) {
+            #info-panel, #info-panel.is-mobile-layout { --pad: 16px; max-height: min(62vh, 560px); }
+            #quick-actions button { font-size: 14px; padding: 10px 16px; min-height: 44px; }
+            #menu-toggle-btn, #menu-toggle-btn { width: 48px; height: 48px; }
+            #menu-panel { width: min(320px, calc(100vw - 20px)); max-height: calc(100vh - 80px); overflow-y: auto; }
+            #menu-panel button { font-size: 14px; padding: 10px 14px; min-height: 44px; }
+            #share-options { gap: 4px 14px; font-size: 14px; }
+            #share-options label { font-size: 14px; gap: 8px; min-height: 36px; }
+            #share-options input { width: 20px; height: 20px; }
+            #search-input { font-size: 16px; padding: 12px; }
+            input, textarea, select { font-size: 16px; }
+            label { font-size: 14px; }
+            #panel-actions button { min-height: 46px; font-size: 15px !important; }
+            .toggle-mode-btn { padding: 8px 12px; font-size: 13px; }
+            .tag-pill { padding: 9px 14px; font-size: 14px; }
+            #identity-name { font-size: 16px; }
+            #identity-org { font-size: 13px; }
+            .modal-header button { min-width: 44px; min-height: 44px; }
+            #copy-link-btn { min-height: 44px; }
+            .modal-actions button { min-height: 46px; }
+            /* cards book: show Open / Remove right away instead of hiding them behind a tap */
+            .saved-card { max-height: none; padding: 14px; }
+            .saved-card:not(.is-peeking) p { opacity: 1; visibility: visible; }
+            .saved-card:not(.is-peeking) .saved-card-actions { display: flex; }
+            .saved-card.is-peeking { max-height: none; }
+            .saved-card-actions { width: 100%; margin-top: 10px; }
+            .saved-card-actions button { flex: 1; min-height: 44px; font-size: 14px; }
+        }

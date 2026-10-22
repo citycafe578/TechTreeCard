@@ -33,7 +33,7 @@ Each node is one thing you want to show: a skill, a project, a certificate.
 
 | Field | What it does |
 |-------|--------------|
-| **Dependencies** | What this node builds on. Choose **Center** or other nodes. To pick more than one, **hold Ctrl (Cmd on Mac) and click**. |
+| **Dependencies** | What this node builds on. Tick **Center** and/or other nodes. Tick more than one to connect this node to several. |
 | **Skill Title** | The name shown on the node. |
 | **Node Category** | Changes the colour: **Skills** (grey), **Experience** (amber), **Credential** (blue), **Exploring** (red). |
 | **Importance Level** | Changes the size: *Hello World* (small), *Production*, *Critical Dependency* (large). |
@@ -57,6 +57,8 @@ Press **Copy** to copy the link, or let someone scan the QR code.
 ## Moving around
 
 - **Rotate:** drag (in 3D view). **Zoom:** scroll or pinch. **Pan:** right-click drag, or two fingers.
+- **Tap or click a node** to open it. On a phone you don't have to hit it exactly; the nearest node is picked.
+- If part of the tree is off screen, open the menu and press **Fit View**.
 - In **2D View**, dragging spins the whole tree around the centre instead.
 - Nodes arrange themselves. Press **Physics: OFF** to freeze them where they are.
 - **2D View** flattens the tree. **3D View** brings it back.
@@ -71,6 +73,7 @@ Press **Copy** to copy the link, or let someone scan the QR code.
 | **Theme** | Switch dark / light |
 | **+ Node** | Add a node |
 | **2D View / 3D View** | Flatten or restore the tree |
+| **Fit View** | Zoom and centre the camera so the whole tree is on screen |
 | **Physics: ON / OFF** | Let nodes move on their own, or freeze them |
 | **Preview: ON / OFF** | See your card the way someone who opens your link sees it (read-only) |
 | **Export** | Download your card as a `.json` file |
@@ -82,7 +85,9 @@ Press **Copy** to copy the link, or let someone scan the QR code.
 
 When you open someone's link, you see their card in read-only mode. Click nodes to read the details.
 
-To keep a card, click any node and press **Save This Card**. Saved cards go into your **Cards book** (the **Cards** button, top right).
+To keep a card, press **Save Card** at the top right (it replaces the Share button while you're looking at someone else's card). Saved cards go into your **Cards book** (the **Cards** button, top right).
+
+Tapping a node shows its details as plain text, with a close button (**×**) to dismiss it.
 
 ![The Cards book](docs/images/cards-book.png)
 

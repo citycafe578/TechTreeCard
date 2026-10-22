@@ -85,7 +85,13 @@ function updateNodeLabel(node, text) {
 
     const labelContext = node.labelContext;
     labelContext.clearRect(0, 0, 512, 128);
-    labelContext.font = 'bold 34px "Helvetica Neue", Arial, sans-serif';
+    let fontSize = 52;
+    const fontFor = size => `bold ${size}px "Helvetica Neue", Arial, "PingFang TC", "Microsoft JhengHei", sans-serif`;
+    labelContext.font = fontFor(fontSize);
+    while (fontSize > 24 && labelContext.measureText(text || 'New Node').width > 480) {
+        fontSize -= 4;
+        labelContext.font = fontFor(fontSize);
+    }
     labelContext.textAlign = 'center';
     labelContext.textBaseline = 'middle';
     labelContext.fillStyle = isLightMode ? '#222222' : '#e5e5e5';
@@ -329,6 +335,11 @@ function animate() {
         });
     });
 
+    // keep labels readable: grow them as the camera moves away (more on small screens)
+    const cameraDistance = camera.position.distanceTo(controls.target);
+    const labelFactor = THREE.MathUtils.clamp(cameraDistance / (window.innerWidth <= 768 ? 12 : 22), 0.8, 3.0);
+    nodes.forEach(node => { if (node.labelSprite) node.labelSprite.scale.set(2.4 * labelFactor, 0.6 * labelFactor, 1); });
+
     const lerpFactor = 0.12;
     centerSphere.rotation.x += (scene.rotation.x - centerSphere.rotation.x) * lerpFactor;
     centerSphere.rotation.y += (scene.rotation.y - centerSphere.rotation.y) * lerpFactor;
@@ -346,16 +357,24 @@ window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-function populateParentSelect(currentNodeId) {
-    const select = document.getElementById('node-parent');
-    select.innerHTML = '<option value="center">Center</option>';
+function populateParentSelect(currentNodeId, selectedIds = []) {
+    const list = document.getElementById('node-parent');
+    list.innerHTML = '';
+    const addRow = (value, text) => {
+        const row = document.createElement('label');
+        row.className = 'check-row';
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.value = value;
+        box.checked = selectedIds.includes(value);
+        const name = document.createElement('span');
+        name.textContent = text;
+        row.append(box, name);
+        list.appendChild(row);
+    };
+    addRow('center', 'Center');
     nodes.forEach(node => {
-        if (node.id !== currentNodeId) {
-            const option = document.createElement('option');
-            option.value = node.id;
-            option.textContent = node.title || 'Untitled';
-            select.appendChild(option);
-        }
+        if (node.id !== currentNodeId) addRow(node.id, node.title || 'Untitled');
     });
 }
 
@@ -403,11 +422,98 @@ function toggleThemeMode() {
     });
 }
 
+const CATEGORY_LABELS = { skill: 'Skill', experience: 'Experience', credential: 'Credential', explore: 'Exploring' };
+const LEVEL_LABELS = { 1: 'Hello World', 2: 'Production', 3: 'Critical Dependency' };
+
+// Someone else's card (or Preview mode) is shown as plain read-only text, not a greyed-out form.
+function renderPanelMode(isProfile) {
+    const readonlyView = document.getElementById('readonly-view');
+    const actions = document.getElementById('panel-actions');
+    if (isPreviewMode) {
+        document.getElementById('skill-view').style.display = 'none';
+        document.getElementById('profile-view').style.display = 'none';
+        document.getElementById('save-btn').style.display = 'none';
+        document.getElementById('delete-btn').style.display = 'none';
+        readonlyView.style.display = 'block';
+        document.getElementById('ro-node').style.display = isProfile ? 'none' : 'block';
+        document.getElementById('ro-profile').style.display = isProfile ? 'block' : 'none';
+        if (isProfile) {
+            document.getElementById('ro-avatar').src = safeImageUrl(profileData.imgUrl);
+            document.getElementById('ro-name').textContent = profileData.name || 'Unnamed';
+            document.getElementById('ro-org').textContent = profileData.org || '';
+            document.getElementById('ro-edu').textContent = profileData.edu || '';
+            document.getElementById('ro-intro').textContent = profileData.intro || '';
+            const link = document.getElementById('ro-link');
+            const url = (profileData.introUrl || '').trim();
+            if (/^https?:\/\//i.test(url)) { link.href = url; link.textContent = url; link.style.display = 'block'; }
+            else { link.removeAttribute('href'); link.style.display = 'none'; }
+        } else if (currentNodeData) {
+            const node = currentNodeData;
+            document.getElementById('ro-title').textContent = node.title || 'Untitled';
+            const badges = document.getElementById('ro-badges');
+            badges.innerHTML = '';
+            [CATEGORY_LABELS[node.category] || 'Skill', LEVEL_LABELS[node.level] || 'Production'].forEach(text => {
+                const badge = document.createElement('span');
+                badge.textContent = text;
+                badges.appendChild(badge);
+            });
+            document.getElementById('ro-desc').textContent = node.desc || 'No details.';
+            const tagBox = document.getElementById('ro-tags');
+            tagBox.innerHTML = '';
+            (node.tags || []).forEach(tag => {
+                const pill = document.createElement('span');
+                pill.className = 'tag-pill static';
+                pill.textContent = tag;
+                tagBox.appendChild(pill);
+            });
+            const names = node.parentIds.map(id => id === 'center' ? 'Center' : (nodes.find(n => n.id === id)?.title || 'Untitled'));
+            document.getElementById('ro-parents').textContent = names.length ? `Builds on: ${names.join(', ')}` : '';
+        }
+    } else {
+        readonlyView.style.display = 'none';
+    }
+    const anyAction = Array.from(actions.children).some(button => button.style.display !== 'none');
+    actions.style.display = anyAction ? 'block' : 'none';
+}
+
+// ---- camera fitting ----------------------------------------------------------------
+let userMovedCamera = false;
+controls.addEventListener('start', () => { userMovedCamera = true; });
+
+// Distance at which every node fits inside the screen (works for tall phone screens too).
+function fitDistance() {
+    let maxX = 4, maxY = 4, maxZ = 0;
+    nodes.forEach(node => {
+        maxX = Math.max(maxX, Math.abs(node.mesh.position.x), Math.abs(node.targetX));
+        maxY = Math.max(maxY, Math.abs(node.mesh.position.y), Math.abs(node.targetY));
+        if (!is2DMode) maxZ = Math.max(maxZ, Math.abs(node.mesh.position.z), Math.abs(node.targetZ));
+    });
+    const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const tanH = tanV * camera.aspect;
+    const distance = Math.max((maxX + 2) / tanH, (maxY + 2) / tanV) + maxZ;
+    return THREE.MathUtils.clamp(distance, 14, 120);
+}
+
+function fitView() {
+    isResettingCamera = true;
+    targetCameraPos.set(0, 0, fitDistance());
+    controls.enableDamping = true;
+}
+
+let autoFitTimers = [];
+// After a card is loaded the layout needs a moment to settle; frame it twice unless the user
+// has already started moving the camera themselves.
+function scheduleAutoFit() {
+    autoFitTimers.forEach(clearTimeout);
+    userMovedCamera = false;
+    autoFitTimers = [1800, 4500].map(delay => setTimeout(() => {
+        if (!userMovedCamera && nodes.length) fitView();
+    }, delay));
+}
+
 function handleSceneDoubleClick(event) {
     if (['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION', 'IMG'].includes(event.target.tagName)) return;
-    isResettingCamera = true;
-    targetCameraPos.set(0, 0, is2DMode ? 35 : 25);
-    controls.enableDamping = true;
+    fitView();
 }
 
 function syncInfoPanelLayout() {
@@ -417,18 +523,40 @@ function syncInfoPanelLayout() {
     panel.classList.toggle('is-mobile-layout', isMobileViewport && panel.style.display === 'block');
 }
 
-function handleScenePointerDown(event) {
-    if (['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION'].includes(event.target.tagName)) return;
-
-    isResettingCamera = false;
-
+// Pick the node nearest to the tap/click in screen space (finger-sized hit area), then fall back
+// to a normal ray cast so labels still work.
+function pickObject(event) {
+    const slop = event.pointerType === 'touch' ? 30 : 12;
+    let best = null, bestDistance = slop;
+    const world = new THREE.Vector3();
+    [centerSphere, ...nodes.map(node => node.mesh)].forEach(object => {
+        object.getWorldPosition(world);
+        const projected = world.clone().project(camera);
+        if (projected.z > 1) return;
+        const screenX = (projected.x + 1) / 2 * window.innerWidth;
+        const screenY = (1 - projected.y) / 2 * window.innerHeight;
+        const distance = Math.hypot(screenX - event.clientX, screenY - event.clientY);
+        if (distance < bestDistance) { best = object; bestDistance = distance; }
+    });
+    if (best) return best;
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
+    const targets = nodes.flatMap(node => [node.mesh, node.labelSprite].filter(Boolean));
+    targets.push(centerSphere);
+    const hits = raycaster.intersectObjects(targets);
+    return hits.length ? hits[0].object : null;
+}
 
-    const meshesToTest = nodes.flatMap(node => [node.mesh, node.labelSprite].filter(Boolean));
-    meshesToTest.push(centerSphere);
-    const intersects = raycaster.intersectObjects(meshesToTest);
+function handleScenePointerDown(event) {
+    if (['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION'].includes(event.target.tagName)) return;
+    // taps on panels / dialogs must not fall through to the 3D scene behind them
+    if (event.target.closest && event.target.closest('#info-panel, #menu-shell, #quick-actions, .modal-overlay, #qr-modal-overlay')) return;
+
+    isResettingCamera = false;
+
+    const picked = pickObject(event);
+    const intersects = picked ? [{ object: picked }] : [];
     const panel = document.getElementById('info-panel');
 
     const isMobileViewport = window.innerWidth <= 768;
@@ -476,10 +604,7 @@ function handleScenePointerDown(event) {
             currentNodeData = nodes.find(node => node.mesh === clickedObj || node.labelSprite === clickedObj);
             updateSelectionVisual();
             if (!currentNodeData) return;
-            populateParentSelect(currentNodeData.id);
-            Array.from(document.getElementById('node-parent').options).forEach(option => {
-                option.selected = currentNodeData.parentIds.includes(option.value);
-            });
+            populateParentSelect(currentNodeData.id, currentNodeData.parentIds);
             document.getElementById('node-title').value = currentNodeData.title;
             document.getElementById('node-category').value = currentNodeData.category || 'skill';
             document.getElementById('node-level').value = String(currentNodeData.level || 2);
@@ -488,6 +613,7 @@ function handleScenePointerDown(event) {
 
             if (editModeIsList) renderEditTags();
         }
+        renderPanelMode(clickedObj === centerSphere);
     } else {
         panel.style.opacity = '0';
         panel.style.transition = 'opacity 140ms ease, transform 140ms ease';

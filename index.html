@@ -15,6 +15,7 @@
                 <button id="theme-btn">Theme</button>
                 <button id="add-node-btn">+ Node</button>
                 <button id="toggle-view-btn">2D View</button>
+                <button id="fit-view-btn">Fit View</button>
                 <button id="physics-btn">Physics: ON</button>
                 <button id="preview-btn">Preview: OFF</button>
                 <button id="export-btn">Export</button>
@@ -46,15 +47,17 @@
 
     <div id="quick-actions" aria-label="Quick Actions">
         <button id="card-book-btn">Cards</button>
+        <button id="save-card-quick-btn" style="display: none;">Save Card</button>
         <button id="share-btn">Share</button>
     </div>
 
     <div id="info-panel">
+        <button id="close-panel-btn" aria-label="Close" title="Close">×</button>
         <div id="skill-view" style="display: none;">
             <h3 id="skill-title">Node Info</h3>
             
             <label>Dependencies:</label>
-            <select id="node-parent" multiple></select>
+            <div id="node-parent" class="checklist" role="group" aria-label="Dependencies"></div>
             
             <label>Skill Title:</label>
             <input type="text" id="node-title" />
@@ -106,9 +109,33 @@
             <input type="url" id="profile-intro-urls" placeholder="https://your-homepage.dev"/>
         </div>
 
+        <div id="readonly-view" style="display: none;">
+            <div id="ro-node">
+                <h3 id="ro-title"></h3>
+                <div id="ro-badges" class="ro-badges"></div>
+                <p id="ro-desc" class="ro-desc"></p>
+                <div id="ro-tags" class="tag-cloud"></div>
+                <p id="ro-parents" class="ro-meta"></p>
+            </div>
+            <div id="ro-profile" style="display: none;">
+                <div class="ro-profile-head">
+                    <img id="ro-avatar" alt="Avatar">
+                    <div>
+                        <div id="ro-name"></div>
+                        <div id="ro-org" class="ro-meta"></div>
+                        <div id="ro-edu" class="ro-meta"></div>
+                    </div>
+                </div>
+                <p id="ro-intro" class="ro-desc"></p>
+                <a id="ro-link" target="_blank" rel="noopener noreferrer nofollow" style="display: none;"></a>
+            </div>
+        </div>
+
+        <div id="panel-actions">
         <button id="save-btn" style="width:100%; margin-top: 10px; padding: 12px; font-size: 14px;">Save Changes</button>
         <button id="delete-btn" style="width:100%; margin-top: 10px; padding: 12px; font-size: 14px; background: transparent;">Delete Node</button>
         <button id="save-card-btn" style="width:100%; margin-top: 10px; padding: 12px; font-size: 14px; display: none;">Save This Card</button>
+        </div>
     </div>
 
     <div id="identity-card" aria-live="polite">
