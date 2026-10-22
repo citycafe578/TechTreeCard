@@ -348,12 +348,12 @@ window.addEventListener('resize', () => {
 
 function populateParentSelect(currentNodeId) {
     const select = document.getElementById('node-parent');
-    select.innerHTML = '<option value="center">中心核心</option>';
+    select.innerHTML = '<option value="center">Center</option>';
     nodes.forEach(node => {
         if (node.id !== currentNodeId) {
             const option = document.createElement('option');
             option.value = node.id;
-            option.textContent = node.title || '未命名技能';
+            option.textContent = node.title || 'Untitled';
             select.appendChild(option);
         }
     });

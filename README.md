@@ -1,120 +1,129 @@
 # TechTreeCard
 
-**A serverless, 3D skill-tree business card. The whole card lives in a link or QR code.**
-
-TechTreeCard turns your skills, experience, credentials and things you're exploring into an interactive 3D graph you can rotate and zoom, then lets you share it as a single URL. There is no account, no database and no backend: the card's data is compressed into the link itself, and your own card is stored in your browser.
+**Turn your skills into a tree you can share with one link.**
 
 English | [繁體中文](README.zh-TW.md)
 
-## Features
+![A tech tree with skills, experience and a certificate around a central core](docs/images/overview.png)
 
-- **Skill tree, not a résumé page.** Nodes can depend on several other nodes, so people can see how your skills build on each other.
-  - Categories: Skills (grey), Experience (amber), Credential (blue), Exploring (red).
-  - Importance level changes node size: *Hello World*, *Production*, *Critical Dependency*.
-  - Tags, free-text details, tag search, 2D/3D view and a force-directed layout (physics can be turned off).
-- **Share as a link or QR code.** The card is packed into the URL, so opening the link is all the receiver needs.
-- **You choose what to share.** Before sharing, tick which fields go out (name, org, education, intro, image URL, intro URL, node descriptions).
-- **Cards book.** Save cards you receive into a local card book (searchable, filterable by tag). The saved snapshot still opens even if the original link stops working.
-- **Import / Export** your card as JSON.
-- **Preview mode** shows your card the way a receiver sees it.
-- Dark / light theme, works on mobile.
+TechTreeCard is a business card that shows how your skills connect. Add what you know, what you've done and what you're learning, then send the whole thing as a link or a QR code. The person who opens it can rotate the tree and click any node to read more.
 
-## How to use
+You don't need an account, and nothing is uploaded anywhere. Your card is stored in your own browser.
 
-1. Click the **centre sphere** to edit your profile (name, org, education, intro, image URL, link).
-2. Open the **☰ menu** and use **+ Node** to add nodes, then click a node to edit its title, category, importance, tags and details.
-3. In *Dependencies*, **hold Ctrl (Cmd on Mac) and click** to connect a node to more than one parent.
-4. Click **Share** to get a link and a QR code. Click **Cards** to open your card book.
+**Try it:** https://citycafe578.github.io/TechTreeCard/
 
-Your card is saved automatically in this browser (`localStorage`). Use **Export** to back it up, because clearing site data deletes it.
+---
 
-## Running it
+## Quick start
 
-There is no build step. Serve the folder with any static file server, for example:
+### 1. Fill in your profile
 
-```bash
-npx serve .
-# or
-python -m http.server 8000
-```
+Click the **sphere in the centre** to open your profile. Add your name, organization, education and a short intro. You can also add a profile picture URL and a link to your own website. Press **Save Changes**.
 
-Then open the printed address. It can be hosted as-is on GitHub Pages or any static host.
+![The profile panel](docs/images/profile.png)
 
-Share links are built from the page's own address, so a card shared from `localhost` or a `file://` page will not work for other people. Share from the hosted page.
+### 2. Add your nodes
 
-## How sharing works
+Each node is one thing you want to show: a skill, a project, a certificate.
 
-The card is shrunk in three steps before it goes into the URL:
+1. Open the menu (**☰**, top left) and press **+ Node**.
+2. Click the new node to edit it, then press **Save Changes**.
 
-1. **Compact format.** Long keys and per-node ids are removed, parents are referenced by index, and positions are rounded (the layout re-settles on its own).
-2. **[ZipURL](https://github.com/citycafe578/ZipURL)** compresses the result.
-3. **Best encoding wins.** The app builds each candidate below and keeps the shortest final URL:
+![The node panel, with two dependencies selected](docs/images/node-panel.png)
 
-   | Param | Contents |
-   |-------|----------|
-   | `zb`  | compact → ZipURL → UTF-8 → base64url (best for CJK text) |
-   | `z`   | compact → ZipURL, percent-encoded by the URL |
-   | `c`   | compact → base64url (no library needed) |
-   | `card`| full card → base64url (old links, still readable) |
+| Field | What it does |
+|-------|--------------|
+| **Dependencies** | What this node builds on. Choose **Center** or other nodes. To pick more than one, **hold Ctrl (Cmd on Mac) and click**. |
+| **Skill Title** | The name shown on the node. |
+| **Node Category** | Changes the colour: **Skills** (grey), **Experience** (amber), **Credential** (blue), **Exploring** (red). |
+| **Importance Level** | Changes the size: *Hello World* (small), *Production*, *Critical Dependency* (large). |
+| **Tags** | Keywords, separated by commas. Used for searching. |
+| **Details** | A longer description. Anyone who opens your card can read it. |
 
-ZipURL is verified by decompressing before a link is produced, so a link is never lossy.
+To remove a node, open it and press **Delete Node**.
 
-**Limits**
+### 3. Share it
 
-- Links longer than 12,000 characters are rejected.
-- A QR code holds roughly 2.9 KB. If the card is larger, the QR contains a lite version (without node descriptions, then without tags and intro) and says so; the link always carries the full card.
+Press **Share** (top right). You get a link and a QR code.
 
-## Card file format
+![The share window with a QR code and a copy button](docs/images/share.png)
 
-Exported / importable JSON:
+Press **Copy** to copy the link, or let someone scan the QR code.
 
-```jsonc
-{
-  "version": 1,
-  "id": "did:local:…",
-  "profile": { "name": "", "org": "", "edu": "", "intro": "", "imgUrl": "", "introUrl": "" },
-  "nodes": [
-    {
-      "id": "node_1760000000000_1",
-      "parentIds": ["center"],          // "center" or other node ids
-      "title": "LiteRTOS",
-      "desc": "details…",
-      "tags": ["rtos", "avr"],
-      "category": "experience",         // skill | experience | credential | explore
-      "level": 3,                       // 1 | 2 | 3
-      "x": 0, "y": 0, "z": 0
-    }
-  ],
-  "updatedAt": "2026-10-22T00:00:00.000Z"
-}
-```
+**Choose what to share first.** In the menu, under **Share Options**, untick anything you don't want others to see (name, organization, education, intro, picture URL, website, or the node descriptions). Only the ticked items go into the link.
 
-`ssi-card-sample.json` is an example card you can import.
+---
 
-## Project structure
+## Moving around
 
-| File | Purpose |
-|------|---------|
-| `index.html` | Layout: menu, node / profile panels, Cards book, import and QR dialogs |
-| `style.css` | Styling and themes |
-| `animation.js` | Three.js scene, nodes, lines, force layout, interaction |
-| `script.js` | Card data, storage, sharing / encoding, Cards book, import / export |
-| `ssi-card-sample.json` | Example card |
+- **Rotate:** drag (in 3D view). **Zoom:** scroll or pinch. **Pan:** right-click drag, or two fingers.
+- In **2D View**, dragging spins the whole tree around the centre instead.
+- Nodes arrange themselves. Press **Physics: OFF** to freeze them where they are.
+- **2D View** flattens the tree. **3D View** brings it back.
+- **Theme** switches between dark and light.
 
-## Dependencies
+## The menu
 
-Loaded from CDNs (no install needed):
+![The menu](docs/images/menu.png)
 
-- [Three.js](https://threejs.org/) r128 + OrbitControls
-- [qr-code-styling](https://github.com/kozakdenys/qr-code-styling) 1.5.0
-- [ZipURL](https://github.com/citycafe578/ZipURL), pinned to a specific commit
+| Button | What it does |
+|--------|--------------|
+| **Theme** | Switch dark / light |
+| **+ Node** | Add a node |
+| **2D View / 3D View** | Flatten or restore the tree |
+| **Physics: ON / OFF** | Let nodes move on their own, or freeze them |
+| **Preview: ON / OFF** | See your card the way someone who opens your link sees it (read-only) |
+| **Export** | Download your card as a `.json` file |
+| **Import** | Load a `.json` card (see *Back up your card*) |
+| **Share Options** | Choose what goes into the link |
+| **Search Tag…** | Dim every node that doesn't have the tag you type. **Clear** resets it. The **≡** button shows all tags as a list. |
 
-## About "SSI"
+## Cards from other people
 
-Each card has a locally generated `did:local:…` identifier, in the spirit of self-sovereign identity: you hold your own card and no platform sits in between. It is **not** a full SSI system yet. Cards are not signed, so a receiver cannot verify that a skill or credential is real.
+When you open someone's link, you see their card in read-only mode. Click nodes to read the details.
 
-## Roadmap
+To keep a card, click any node and press **Save This Card**. Saved cards go into your **Cards book** (the **Cards** button, top right).
 
-- Signed cards and verifiable credentials for the *Credential* category
-- Bundle the libraries locally so the app has no CDN dependency
-- Screenshots / demo
+![The Cards book](docs/images/cards-book.png)
+
+- Search by name, organization or tag, or pick a tag to filter.
+- **Open** shows the saved card. **Remove** deletes it from your Cards book.
+- The card is saved as a snapshot, so you can still open it even if the original link stops working.
+
+## Back up your card
+
+Your card lives in this browser only. If you clear your browser's site data, or open the page on another device, your card will not be there.
+
+- **Export** downloads a `.json` file. Do this now and then.
+- **Import** loads one back. **Importing replaces the card you currently have**, so export first if you want to keep it.
+
+To move your card to another device, either send yourself the share link, or Export on one and Import on the other.
+
+## Good to know
+
+**My QR code is missing details, or doesn't appear.**
+A QR code can only hold a limited amount of data. If your card is too big, the QR code holds a lighter version (first without node descriptions, then without tags and intro), and a note under the code tells you so. The link always has everything. If even the lighter version is too large, only the link is shown.
+
+**"Payload too large" when sharing.**
+The link would be longer than 12,000 characters. Shorten some descriptions, remove unneeded nodes, or untick **DESCRIPTIONS** in Share Options.
+
+**Can people change my card?**
+No. Opening your link only shows them a copy. Your own card stays in your browser.
+
+**Does it prove that my skills are real?**
+No. It is a way to present and share your skills. Cards aren't signed or verified, so anyone can write anything on theirs.
+
+**My link used to work and now doesn't.**
+Links point to the page's web address. If the page moves to a new address, old links stop working.
+
+## Run your own copy
+
+TechTreeCard is a plain web page with no build step. To publish your own:
+
+1. Put the project in a GitHub repository.
+2. Open **Settings → Pages**, choose **Deploy from a branch**, pick `main` and `/ (root)`, and save.
+3. After a minute or two, your page is live at `https://<your-username>.github.io/<repo-name>/`.
+
+Share links are made from the page's own address, so share from the published page, not from a file on your computer.
+
+`ssi-card-sample.json` is an example card. Use **Import** to try it.

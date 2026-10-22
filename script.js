@@ -420,7 +420,7 @@ document.getElementById('share-btn').addEventListener('click', () => {
                 : 'QR Code service is temporarily unavailable. Please use the fallback URL below.';
             qrContainer.style.cssText = 'color: var(--text-color); background: transparent; padding: 28px 0; font-size: 13px;';
         }
-    } catch (error) { alert("分享連結產生失敗"); } finally { shareButton.innerText = "Share"; }
+    } catch (error) { alert("Failed to create the share link."); } finally { shareButton.innerText = "Share"; }
 });
 
 document.getElementById('close-qr-btn').addEventListener('click', () => document.getElementById('qr-modal-overlay').style.display = 'none');
@@ -449,7 +449,7 @@ document.getElementById('copy-link-btn').addEventListener('click', async () => {
     }, 2000);
 });
 
-const ALL_TAG = '全部';
+const ALL_TAG = 'All';
 let cardBookTag = ''; // exact-match tag filter ('' = all)
 
 function cardTags(card) {
