@@ -31,10 +31,32 @@ id: profileData.id,
 profile: { ...profileData },
 nodes: nodes.map(node => ({
     id: node.id, parentIds: node.parentIds, title: node.title, desc: node.desc,
-    tags: node.tags, category: node.category, level: node.level, x: Math.round(node.targetX * 10) / 10,
-    y: Math.round(node.targetY * 10) / 10, z: Math.round(node.targetZ * 10) / 10
-})),
-updatedAt: new Date().toISOString()
+    tags: node.tags, category: node.category, level: node.level
+}))
+    };
+}
+
+// Smallest possible export: short ids, no coordinates (the layout is regenerated on load),
+// and any field that equals its default is left out.
+function buildExportData() {
+    const card = buildCardData();
+    const idMap = new Map(card.nodes.map((node, i) => [node.id, 'n' + i.toString(36)]));
+    const profile = {};
+    Object.entries(card.profile).forEach(([key, value]) => { if (value && key !== 'id') profile[key] = value; });
+    return {
+        version: 1,
+        id: card.id,
+        profile,
+        nodes: card.nodes.map(node => {
+            const item = { id: idMap.get(node.id), title: node.title || '' };
+            const parents = (node.parentIds || []).map(id => idMap.get(id) || 'center');
+            if (parents.length && !(parents.length === 1 && parents[0] === 'center')) item.parentIds = parents;
+            if (node.desc) item.desc = node.desc;
+            if (node.tags && node.tags.length) item.tags = node.tags;
+            if (node.category && node.category !== 'skill') item.category = node.category;
+            if (node.level && node.level !== 2) item.level = node.level;
+            return item;
+        })
     };
 }
 
@@ -126,8 +148,8 @@ function decodeCardLegacy(encodedCard) {
 
 // ---- Compact share format (v2) ------------------------------------------------
 // The full card repeats long keys / ids on every node. For sharing we flatten it to
-// positional arrays, reference parents by index and round positions (the force layout
-// re-settles them anyway), which shrinks the payload before ZipURL even runs.
+// positional arrays and reference parents by index. Positions are not stored at all: the
+// layout is regenerated when the card is opened.
 const CATEGORY_CODES = ['skill', 'experience', 'credential', 'explore'];
 const PROFILE_FIELDS = ['name', 'org', 'edu', 'intro', 'imgUrl', 'introUrl'];
 
@@ -144,8 +166,7 @@ function compactCard(card) {
             (node.tags || []).join(','),
             Math.max(0, CATEGORY_CODES.indexOf(node.category || 'skill')),
             node.level || 2,
-            (node.parentIds || []).map(id => indexById.has(id) ? indexById.get(id) : -1), // -1 = center
-            Math.round(node.x || 0), Math.round(node.y || 0), Math.round(node.z || 0)
+            (node.parentIds || []).map(id => indexById.has(id) ? indexById.get(id) : -1) // -1 = center
         ])
     };
 }
@@ -165,8 +186,8 @@ function expandCard(data) {
             return {
                 id: ids[i], parentIds: parentIds.length ? parentIds : ['center'],
                 title: row[0], desc: row[1], tags: row[2] ? row[2].split(',') : [],
-                category: CATEGORY_CODES[row[3]] || 'skill', level: row[4] || 2,
-                x: row[6] || 0, y: row[7] || 0, z: row[8] || 0
+                category: CATEGORY_CODES[row[3]] || 'skill', level: row[4] || 2
+                // older share links also carried x / y / z in row[6..8]; positions are regenerated now
             };
         })
     };
@@ -311,17 +332,60 @@ function saveSkillsToLocal() {
     localStorage.setItem(MY_CARD_STORAGE_KEY, JSON.stringify(buildCardData()));
 }
 
+// Cards no longer store x / y / z, so give every node a starting position. Nodes are spread
+// around their parent in different directions (golden-angle spiral) and the force layout
+// then settles them. Without distinct starting points nodes would stack on one spot.
+function seedPositions(list) {
+    const known = new Set(list.map(item => item.id));
+    const depth = new Map();
+    for (let pass = 0, changed = true; changed && pass <= list.length; pass++) {
+        changed = false;
+        list.forEach(item => {
+            let best = Infinity;
+            item.parentIds.forEach(parentId => {
+                if (parentId === 'center' || !known.has(parentId)) best = Math.min(best, 1);
+                else if (depth.has(parentId)) best = Math.min(best, depth.get(parentId) + 1);
+            });
+            if (best < Infinity && best < (depth.get(item.id) ?? Infinity)) { depth.set(item.id, best); changed = true; }
+        });
+    }
+    const positions = new Map();
+    const GOLDEN_ANGLE = 2.399963;
+    const order = list.map((item, k) => ({ item, k })).sort((a, b) => (depth.get(a.item.id) ?? 1) - (depth.get(b.item.id) ?? 1));
+    order.forEach(({ item, k }) => {
+        const theta = k * GOLDEN_ANGLE;
+        let dx, dy, dz;
+        if (is2DMode) { dx = Math.cos(theta); dy = Math.sin(theta); dz = 0; }
+        else {
+            dy = 1 - 2 * (k + 0.5) / list.length;
+            const r = Math.sqrt(Math.max(0, 1 - dy * dy));
+            dx = Math.cos(theta) * r; dz = Math.sin(theta) * r;
+        }
+        const anchor = item.parentIds.map(id => positions.get(id)).find(Boolean) || { x: 0, y: 0, z: 0 };
+        positions.set(item.id, { x: anchor.x + dx * 5, y: anchor.y + dy * 5, z: anchor.z + dz * 5 });
+    });
+    return positions;
+}
+
 function parseAndRenderData(savedDataStr) {
     const parsedData = JSON.parse(savedDataStr);
-    let nodesData = Array.isArray(parsedData) ? parsedData : (parsedData.nodes || []);
+    const nodesData = Array.isArray(parsedData) ? parsedData : (parsedData.nodes || []);
     if (parsedData.profile) profileData = normalizeProfileData(parsedData.profile);
-    nodesData.forEach(data => {
+    // exports leave the id out of `profile`; keep the card's identity
+    if (!Array.isArray(parsedData) && parsedData.id && !profileData.id) profileData.id = parsedData.id;
+    const list = nodesData.map((data, i) => {
         let parentIds = data.parentIds || data.p || [data.parentId || 'center'];
         if (!Array.isArray(parentIds)) parentIds = [parentIds];
-        // never let a missing / non-numeric coordinate become NaN (it would poison the whole physics layout)
-        const toCoord = v => { const n = typeof v === 'number' ? v : parseFloat(v); return Number.isFinite(n) ? n : 0; };
-        const x = toCoord(data.x), y = toCoord(data.y), z = toCoord(data.z);
-        createNodeMesh(data.id || data.i || generateId(), parentIds, x, y, z, data.title || data.t, data.desc || data.d, data.tags || data.tg || "", data.category || 'skill', data.level || 2);
+        if (!parentIds.length) parentIds = ['center'];
+        return { data, id: data.id || data.i || `${generateId()}_${i}`, parentIds };
+    });
+    const seeded = seedPositions(list);
+    // a missing / non-numeric coordinate must never become NaN (it would poison the whole layout)
+    const toNumber = v => { const n = typeof v === 'number' ? v : parseFloat(v); return Number.isFinite(n) ? n : null; };
+    list.forEach(({ data, id, parentIds }) => {
+        const saved = [toNumber(data.x), toNumber(data.y), toNumber(data.z)];
+        const [x, y, z] = saved.every(v => v !== null) ? saved : (({ x, y, z }) => [x, y, z])(seeded.get(id));
+        createNodeMesh(id, parentIds, x, y, z, data.title || data.t || '', data.desc || data.d || '', data.tags || data.tg || "", data.category || 'skill', data.level || 2);
     });
     updateIdentityCard();
 }
@@ -578,7 +642,7 @@ document.getElementById('card-book-overlay').addEventListener('click', event => 
 document.getElementById('save-card-btn').addEventListener('click', saveCurrentCardToBook);
 
 document.getElementById('export-btn').addEventListener('click', () => {
-    const file = new Blob([JSON.stringify(buildCardData(), null, 2)], { type: 'application/json' });
+    const file = new Blob([JSON.stringify(buildExportData())], { type: 'application/json' });
     const downloadUrl = URL.createObjectURL(file);
     const link = document.createElement('a');
     link.href = downloadUrl;
