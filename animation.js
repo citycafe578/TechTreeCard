@@ -337,7 +337,7 @@ function animate() {
 
     // keep labels readable: grow them as the camera moves away (more on small screens)
     const cameraDistance = camera.position.distanceTo(controls.target);
-    const labelFactor = THREE.MathUtils.clamp(cameraDistance / (window.innerWidth <= 768 ? 12 : 22), 0.8, 3.0);
+    const labelFactor = THREE.MathUtils.clamp(cameraDistance / 22, 0.8, 2.0);
     nodes.forEach(node => { if (node.labelSprite) node.labelSprite.scale.set(2.4 * labelFactor, 0.6 * labelFactor, 1); });
 
     const lerpFactor = 0.12;
