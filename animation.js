@@ -478,7 +478,7 @@ function renderPanelMode(isProfile) {
 
 // ---- camera fitting ----------------------------------------------------------------
 let userMovedCamera = false;
-controls.addEventListener('start', () => { userMovedCamera = true; });
+controls.addEventListener('start', () => { userMovedCamera = true; isResettingCamera = false; });
 
 // Distance at which every node fits inside the screen (works for tall phone screens too).
 function fitDistance() {
@@ -687,7 +687,31 @@ function removeCurrentNode() {
 }
 
 window.addEventListener('dblclick', handleSceneDoubleClick);
-window.addEventListener('pointerdown', handleScenePointerDown);
+// Select on TAP only: a finger that starts on a node to rotate/pinch must not pop up the panel.
+const tapState = { active: new Set(), start: null, multi: false };
+function handleSceneTapDown(event) {
+    if (['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION'].includes(event.target.tagName)) return;
+    if (event.target.closest && event.target.closest('#info-panel, #menu-shell, #quick-actions, .modal-overlay, #qr-modal-overlay')) return;
+    tapState.active.add(event.pointerId);
+    if (tapState.active.size > 1) { tapState.multi = true; tapState.start = null; return; }
+    tapState.multi = false;
+    tapState.start = { x: event.clientX, y: event.clientY, t: performance.now(), pointerId: event.pointerId, pointerType: event.pointerType, button: event.button, target: event.target, clientX: event.clientX, clientY: event.clientY, ctrlKey: event.ctrlKey, shiftKey: event.shiftKey, metaKey: event.metaKey };
+    // 2D mode needs the drag-rotate set-up immediately when pressing empty space
+    if (is2DMode && !pickObject(event)) { tapState.start = null; handleScenePointerDown(event); }
+}
+function handleSceneTapUp(event) {
+    const st = tapState.start;
+    tapState.active.delete(event.pointerId);
+    if (tapState.active.size === 0) { tapState.start = null; }
+    if (!st || tapState.multi || st.pointerId !== event.pointerId) return;
+    const moved = Math.hypot(event.clientX - st.x, event.clientY - st.y);
+    const limit = st.pointerType === 'touch' ? 12 : 5;
+    if (moved <= limit && performance.now() - st.t < 600) handleScenePointerDown(st);
+}
+function handleSceneTapCancel(event) { tapState.active.delete(event.pointerId); tapState.start = null; }
+window.addEventListener('pointerdown', handleSceneTapDown);
+window.addEventListener('pointerup', handleSceneTapUp);
+window.addEventListener('pointercancel', handleSceneTapCancel);
 window.addEventListener('pointermove', handleScenePointerMove);
 window.addEventListener('pointerup', handleScenePointerUp);
 window.addEventListener('resize', syncInfoPanelLayout);

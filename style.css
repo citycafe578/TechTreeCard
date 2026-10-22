@@ -542,3 +542,10 @@
             .saved-card-actions { width: 100%; margin-top: 10px; }
             .saved-card-actions button { flex: 1; min-height: 44px; font-size: 14px; }
         }
+
+/* Android: 100vh ignores the URL bar / keyboard; prefer dynamic viewport units */
+@supports (height: 100dvh) {
+    body { min-height: 100dvh; }
+    #info-panel, #info-panel.is-mobile-layout { max-height: min(62dvh, 560px); }
+    #menu-panel { max-height: calc(100dvh - 80px); }
+}
