@@ -53,6 +53,17 @@ function updateIdentityCard() {
     document.getElementById('identity-org').textContent = profileData.org || 'Personal Technology Tree';
 }
 
+function writeCardBook(cards) {
+    try {
+        localStorage.setItem(CARD_BOOK_STORAGE_KEY, JSON.stringify(cards));
+        return true;
+    } catch (e) {
+        console.error(e);
+        alert('Could not save to this browser (storage full or blocked). Remove some cards and try again.');
+        return false;
+    }
+}
+
 function getCardBook() {
     try { return JSON.parse(localStorage.getItem(CARD_BOOK_STORAGE_KEY) || '[]'); }
     catch { return []; }
@@ -84,18 +95,114 @@ function loadCardIntoEditor(cardData) {
     saveSkillsToLocal();
 }
 
-function encodeCardForUrl(cardData) {
-    const bytes = new TextEncoder().encode(JSON.stringify(cardData));
+// Share-link parameters
+//   z    compact card -> ZipURL                       (ZipURL output percent-encoded by the URL)
+//   zb   compact card -> ZipURL -> UTF-8 -> base64url (much shorter when the text is CJK:
+//                                                      percent-encoding costs 9 chars per CJK
+//                                                      character, base64 only ~4)
+//   c    compact card -> base64url                    (no library needed)
+//   card full card -> base64url                       (old links, decode only)
+const SHARE_PARAM_ZIP = 'z';
+const SHARE_PARAM_ZIP_B64 = 'zb';
+const SHARE_PARAM_COMPACT = 'c';
+const SHARE_PARAM_LEGACY = 'card';
+
+function textToBase64Url(text) {
+    const bytes = new TextEncoder().encode(text);
     let binary = '';
     bytes.forEach(byte => { binary += String.fromCharCode(byte); });
     return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function decodeCardFromUrl(encodedCard) {
-    const base64 = encodedCard.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - encodedCard.length % 4) % 4);
+function base64UrlToText(encoded) {
+    const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - encoded.length % 4) % 4);
     const binary = atob(base64);
-    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-    return JSON.parse(new TextDecoder().decode(bytes));
+    return new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)));
+}
+
+function decodeCardLegacy(encodedCard) {
+    return JSON.parse(base64UrlToText(encodedCard));
+}
+
+// ---- Compact share format (v2) ------------------------------------------------
+// The full card repeats long keys / ids on every node. For sharing we flatten it to
+// positional arrays, reference parents by index and round positions (the force layout
+// re-settles them anyway), which shrinks the payload before ZipURL even runs.
+const CATEGORY_CODES = ['skill', 'experience', 'credential', 'explore'];
+const PROFILE_FIELDS = ['name', 'org', 'edu', 'intro', 'imgUrl', 'introUrl'];
+
+function compactCard(card) {
+    const indexById = new Map(card.nodes.map((node, i) => [node.id, i]));
+    const profile = [card.id || '', ...PROFILE_FIELDS.map(key => card.profile?.[key] || '')];
+    while (profile.length > 1 && profile[profile.length - 1] === '') profile.pop();
+    return {
+        v: 2,
+        p: profile,
+        n: card.nodes.map(node => [
+            node.title || '',
+            node.desc || '',
+            (node.tags || []).join(','),
+            Math.max(0, CATEGORY_CODES.indexOf(node.category || 'skill')),
+            node.level || 2,
+            (node.parentIds || []).map(id => indexById.has(id) ? indexById.get(id) : -1), // -1 = center
+            Math.round(node.x || 0), Math.round(node.y || 0), Math.round(node.z || 0)
+        ])
+    };
+}
+
+function expandCard(data) {
+    const [id, ...rest] = data.p || [];
+    const profile = {};
+    PROFILE_FIELDS.forEach((key, i) => { profile[key] = rest[i] || ''; });
+    if (id) profile.id = id;
+    const ids = data.n.map((_, i) => `node_s${i}`);
+    return {
+        version: 1,
+        id,
+        profile,
+        nodes: data.n.map((row, i) => {
+            const parentIds = (row[5] || []).map(p => (p >= 0 && ids[p]) ? ids[p] : 'center');
+            return {
+                id: ids[i], parentIds: parentIds.length ? parentIds : ['center'],
+                title: row[0], desc: row[1], tags: row[2] ? row[2].split(',') : [],
+                category: CATEGORY_CODES[row[3]] || 'skill', level: row[4] || 2,
+                x: row[6] || 0, y: row[7] || 0, z: row[8] || 0
+            };
+        })
+    };
+}
+
+// Returns [paramName, paramValue]: whichever candidate gives the shortest final URL.
+function encodeCardForUrl(cardData) {
+    const json = JSON.stringify(compactCard(cardData));
+    const candidates = [[SHARE_PARAM_COMPACT, textToBase64Url(json)]];
+    if (typeof ZipURL !== 'undefined') {
+        try {
+            const packed = ZipURL.compress(json);
+            // never ship a lossy link
+            if (ZipURL.decompress(packed) === json) {
+                candidates.push([SHARE_PARAM_ZIP, packed], [SHARE_PARAM_ZIP_B64, textToBase64Url(packed)]);
+            }
+        } catch (e) {
+            console.warn('ZipURL compress failed, using the uncompressed compact format', e);
+        }
+    }
+    const size = pair => new URLSearchParams([pair]).toString().length;
+    return candidates.reduce((best, candidate) => size(candidate) < size(best) ? candidate : best);
+}
+
+function decodeCardFromParams(params) {
+    const unpack = text => {
+        if (typeof ZipURL === 'undefined') throw new Error('ZipURL library failed to load');
+        return ZipURL.decompress(text);
+    };
+    let parsed = null;
+    if (params.get(SHARE_PARAM_ZIP)) parsed = JSON.parse(unpack(params.get(SHARE_PARAM_ZIP)));
+    else if (params.get(SHARE_PARAM_ZIP_B64)) parsed = JSON.parse(unpack(base64UrlToText(params.get(SHARE_PARAM_ZIP_B64))));
+    else if (params.get(SHARE_PARAM_COMPACT)) parsed = JSON.parse(base64UrlToText(params.get(SHARE_PARAM_COMPACT)));
+    else if (params.get(SHARE_PARAM_LEGACY)) return decodeCardLegacy(params.get(SHARE_PARAM_LEGACY));
+    else return null;
+    return parsed && parsed.v === 2 && Array.isArray(parsed.n) ? expandCard(parsed) : parsed;
 }
 
 function generateId() { return 'node_' + Date.now() + '_' + Math.floor(Math.random() * 1000); }
@@ -211,25 +318,32 @@ function parseAndRenderData(savedDataStr) {
     nodesData.forEach(data => {
         let parentIds = data.parentIds || data.p || [data.parentId || 'center'];
         if (!Array.isArray(parentIds)) parentIds = [parentIds];
-        const x = typeof data.x === 'number' ? data.x : (typeof data.x === 'string' ? parseFloat(data.x) : 0);
-        const y = typeof data.y === 'number' ? data.y : (typeof data.y === 'string' ? parseFloat(data.y) : 0);
-        const z = typeof data.z === 'number' ? data.z : (typeof data.z === 'string' ? parseFloat(data.z) : 0);
+        // never let a missing / non-numeric coordinate become NaN (it would poison the whole physics layout)
+        const toCoord = v => { const n = typeof v === 'number' ? v : parseFloat(v); return Number.isFinite(n) ? n : 0; };
+        const x = toCoord(data.x), y = toCoord(data.y), z = toCoord(data.z);
         createNodeMesh(data.id || data.i || generateId(), parentIds, x, y, z, data.title || data.t, data.desc || data.d, data.tags || data.tg || "", data.category || 'skill', data.level || 2);
     });
     updateIdentityCard();
 }
 
 async function loadSkills() {
-    const sharedCard = new URLSearchParams(window.location.search).get('card');
-    if (sharedCard) {
+    const params = new URLSearchParams(window.location.search);
+    if ([SHARE_PARAM_ZIP, SHARE_PARAM_ZIP_B64, SHARE_PARAM_COMPACT, SHARE_PARAM_LEGACY].some(name => params.has(name))) {
         setPreviewMode(true);
         try {
-            const cardData = decodeCardFromUrl(sharedCard);
+            const cardData = decodeCardFromParams(params);
+            if (!isValidCardData(cardData)) throw new Error('Invalid card data');
             parseAndRenderData(JSON.stringify(cardData));
             currentViewingCard = { data: cardData, sourceUrl: window.location.href, sourceType: 'link' };
             document.getElementById('preview-btn').style.display = 'none';
             return;
-        } catch (e) { alert("Contact data failed to deserialize. The share URL is probably broken."); }
+        } catch (e) {
+            console.error(e);
+            disposeAndClearNodes(); // drop any half-rendered nodes
+            profileData = { ...defaultProfileData };
+            setPreviewMode(false);  // don't leave the editor stuck in read-only mode
+            alert("Contact data failed to deserialize. The share URL is probably broken.");
+        }
     }
     const savedData = localStorage.getItem(MY_CARD_STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     if (savedData) { parseAndRenderData(savedData); }
@@ -248,33 +362,62 @@ function addSkillNode() {
     saveSkillsToLocal();
 }
 
+const QR_MAX_URL_LENGTH = 2900; // QR capacity at the lowest error-correction level is ~2953 bytes
+
+function makeShareUrl(cardData) {
+    const sharePage = new URL(window.location.href);
+    sharePage.search = '';
+    sharePage.hash = '';
+    const [paramName, paramValue] = encodeCardForUrl(cardData);
+    sharePage.searchParams.set(paramName, paramValue);
+    return sharePage.toString();
+}
+
+// A big card cannot fit in a QR code, so progressively strip the heaviest parts until it does.
+// Returns { url, note } or null if even the skeleton is too large.
+function makeQrShare(fullData, fullUrl) {
+    if (fullUrl.length <= QR_MAX_URL_LENGTH) return { url: fullUrl, note: '' };
+    const lite = JSON.parse(JSON.stringify(fullData));
+    lite.nodes.forEach(node => { node.desc = ''; });
+    let url = makeShareUrl(lite);
+    if (url.length <= QR_MAX_URL_LENGTH) return { url, note: 'QR contains a lite version (no node descriptions). The link above has everything.' };
+    lite.nodes.forEach(node => { node.tags = []; });
+    lite.profile.intro = '';
+    url = makeShareUrl(lite);
+    if (url.length <= QR_MAX_URL_LENGTH) return { url, note: 'QR contains a minimal version (no descriptions, tags or intro). The link above has everything.' };
+    return null;
+}
+
 document.getElementById('share-btn').addEventListener('click', () => {
     const shareButton = document.getElementById('share-btn'); shareButton.innerText = "CREATING...";
     const dataToShare = buildSharedCardData();
     try {
-        const sharePage = new URL(window.location.href);
-        sharePage.search = '';
-        sharePage.hash = '';
-        sharePage.searchParams.set('card', encodeCardForUrl(dataToShare));
-        const shareUrl = sharePage.toString();
-        if (shareUrl.length > 7500) {
+        const shareUrl = makeShareUrl(dataToShare);
+        if (shareUrl.length > 12000) {
             alert("Payload too large. Reduce the node count or metadata before serialization.");
             return;
         }
-        
+
         document.getElementById('share-link-input').value = shareUrl;
         const qrContainer = document.getElementById('qr-container'); qrContainer.innerHTML = ''; qrContainer.style.cssText = '';
+        const qrNote = document.getElementById('qr-note'); qrNote.textContent = '';
         document.getElementById('qr-modal-overlay').style.display = 'flex';
         try {
             if (typeof QRCodeStyling === 'undefined') throw new Error('QR Code library unavailable');
-            new QRCodeStyling({ 
-                width: 250, height: 250, type: "svg", data: shareUrl, 
-                dotsOptions: { color: "#222", type: "square" }, 
-                cornersSquareOptions: { type: "square", color: "#222" }, 
-                backgroundOptions: { color: "#fff" } 
+            const qrShare = makeQrShare(dataToShare, shareUrl);
+            if (!qrShare) throw new Error('Link too long for a QR code');
+            qrNote.textContent = qrShare.note;
+            const size = qrShare.url.length > 1200 ? 320 : 250; // denser codes need more pixels to scan
+            new QRCodeStyling({
+                width: size, height: size, type: "svg", data: qrShare.url, qrOptions: { errorCorrectionLevel: 'L' },
+                dotsOptions: { color: "#222", type: "square" },
+                cornersSquareOptions: { type: "square", color: "#222" },
+                backgroundOptions: { color: "#fff" }
             }).append(qrContainer);
         } catch (qrError) {
-            qrContainer.textContent = 'QR Code service is temporarily unavailable. Please use the fallback URL below.';
+            qrContainer.textContent = shareUrl.length > QR_MAX_URL_LENGTH
+                ? 'This card is too large for a QR code. Please copy the link below instead.'
+                : 'QR Code service is temporarily unavailable. Please use the fallback URL below.';
             qrContainer.style.cssText = 'color: var(--text-color); background: transparent; padding: 28px 0; font-size: 13px;';
         }
     } catch (error) { alert("分享連結產生失敗"); } finally { shareButton.innerText = "Share"; }
@@ -282,13 +425,21 @@ document.getElementById('share-btn').addEventListener('click', () => {
 
 document.getElementById('close-qr-btn').addEventListener('click', () => document.getElementById('qr-modal-overlay').style.display = 'none');
 
-document.getElementById('copy-link-btn').addEventListener('click', () => {
+document.getElementById('copy-link-btn').addEventListener('click', async () => {
     const shareLinkInput = document.getElementById('share-link-input');
     shareLinkInput.select();
-    shareLinkInput.setSelectionRange(0, 99999);
-    navigator.clipboard.writeText(shareLinkInput.value);
-    
+    shareLinkInput.setSelectionRange(0, shareLinkInput.value.length);
     const copyLinkButton = document.getElementById('copy-link-btn');
+    try {
+        await navigator.clipboard.writeText(shareLinkInput.value);
+    } catch (e) {
+        // clipboard API unavailable (http / permissions): fall back to the selected text
+        if (!document.execCommand || !document.execCommand('copy')) {
+            copyLinkButton.innerText = "Press Ctrl+C";
+            setTimeout(() => { copyLinkButton.innerText = "Copy"; }, 2000);
+            return;
+        }
+    }
     copyLinkButton.innerText = "Copied!";
     copyLinkButton.style.background = "var(--text-color)";
     copyLinkButton.style.color = "var(--bg-color)";
@@ -297,6 +448,22 @@ document.getElementById('copy-link-btn').addEventListener('click', () => {
         copyLinkButton.style.background = "var(--heading-color)";
     }, 2000);
 });
+
+const ALL_TAG = '全部';
+let cardBookTag = ''; // exact-match tag filter ('' = all)
+
+function cardTags(card) {
+    const tags = (card.data?.nodes || []).flatMap(node => Array.isArray(node.tags) ? node.tags : (node.tags ? String(node.tags).split(',') : []));
+    return tags.map(tag => String(tag).trim()).filter(Boolean);
+}
+
+function setSaveCardButtonState() {
+    const button = document.getElementById('save-card-btn');
+    if (!button) return;
+    const id = currentViewingCard?.id || currentViewingCard?.data?.id || currentViewingCard?.sourceUrl;
+    const saved = !!id && getCardBook().some(card => card.id === id);
+    button.innerText = saved ? 'Update Saved Card' : 'Save This Card';
+}
 
 function cardName(card) {
     return card.data?.profile?.name || 'Unnamed Card';
@@ -309,49 +476,56 @@ function renderCardBook() {
     const allCards = getCardBook();
     const filters = document.getElementById('card-book-filters');
     filters.innerHTML = '';
-    const allTags = Array.from(new Set(allCards.flatMap(card => (card.data?.nodes || []).flatMap(node => node.tags || [])))).sort();
-    ['全部', ...allTags].forEach(tag => {
+    const allTags = Array.from(new Set(allCards.flatMap(cardTags))).sort((x, y) => x.localeCompare(y));
+    if (cardBookTag && !allTags.includes(cardBookTag)) cardBookTag = ''; // tag vanished (card removed)
+    [ALL_TAG, ...allTags].forEach(tag => {
+        const isAll = tag === ALL_TAG;
         const button = document.createElement('button');
-        button.className = 'tag-pill' + ((tag === 'ALL' && !query) || tag.toLowerCase() === query ? ' active' : '');
+        button.className = 'tag-pill' + ((isAll ? !cardBookTag : tag === cardBookTag) ? ' active' : '');
         button.textContent = tag;
         button.onclick = () => {
-            document.getElementById('card-book-search').value = tag === 'ALL' ? '' : tag;
+            cardBookTag = isAll || tag === cardBookTag ? '' : tag; // click an active tag again to clear it
             renderCardBook();
         };
         filters.appendChild(button);
     });
     const cards = allCards.filter(card => {
+        if (cardBookTag && !cardTags(card).includes(cardBookTag)) return false;
         if (!query) return true;
-        const searchable = [cardName(card), card.data?.profile?.org || '', ...(card.data?.nodes || []).flatMap(node => node.tags || [])].join(' ').toLowerCase();
+        const searchable = [cardName(card), card.data?.profile?.org || '', ...cardTags(card)].join(' ').toLowerCase();
         return searchable.includes(query);
     });
     if (!cards.length) {
         const empty = document.createElement('p');
         empty.className = 'empty-card-book';
-        empty.textContent = 'It’s not a bug. You just haven’t initialized the relationship.';
+        empty.textContent = allCards.length
+            ? 'No cards match this search.'
+            : 'It’s not a bug. You just haven’t initialized the relationship.';
         list.appendChild(empty);
         return;
     }
-    cards.sort((a, b) => new Date(a.savedAt) - new Date(b.savedAt)).forEach((card, index) => {
+    cards.sort((a, b) => (Date.parse(a.savedAt) || 0) - (Date.parse(b.savedAt) || 0)).forEach((card, index) => {
         const item = document.createElement('article');
         item.className = 'saved-card';
         item.tabIndex = 0;
         item.style.zIndex = String(index + 1);
-        item.setAttribute('aria-label', `Card Saved：${cardName(card)}`);
+        item.setAttribute('aria-label', `Saved card: ${cardName(card)}`);
         const details = document.createElement('div');
         const title = document.createElement('h3'); title.textContent = cardName(card);
         const meta = document.createElement('p');
         const nodeCount = card.data?.nodes?.length || 0;
         const organization = card.data?.profile?.org?.trim();
-        meta.textContent = organization || `${nodeCount} nodes are saved in ${new Date(card.savedAt).toLocaleDateString('zh-TW')}`;
+        meta.textContent = organization || `${nodeCount} nodes · saved ${Number.isNaN(Date.parse(card.savedAt)) ? '' : new Date(card.savedAt).toLocaleDateString('zh-TW')}`.trim();
         details.append(title, meta);
         const actions = document.createElement('div'); actions.className = 'saved-card-actions';
         const openButton = document.createElement('button'); openButton.textContent = 'Open';
         openButton.onclick = () => openSavedCard(card.id);
         const removeButton = document.createElement('button'); removeButton.textContent = 'Remove'; removeButton.className = 'danger-button';
         removeButton.onclick = () => {
-            localStorage.setItem(CARD_BOOK_STORAGE_KEY, JSON.stringify(getCardBook().filter(saved => saved.id !== card.id)));
+            if (!confirm(`Remove "${cardName(card)}" from your Cards book? The saved snapshot will be deleted.`)) return;
+            if (!writeCardBook(getCardBook().filter(saved => saved.id !== card.id))) return;
             renderCardBook();
+            setSaveCardButtonState();
         };
         actions.append(openButton, removeButton); item.append(details, actions); list.appendChild(item);
         item.addEventListener('click', event => {
@@ -373,6 +547,7 @@ function openSavedCard(cardId) {
     setPreviewMode(true);
     document.getElementById('preview-btn').style.display = 'none';
     document.getElementById('card-book-overlay').style.display = 'none';
+    setSaveCardButtonState();
 }
 
 function saveCurrentCardToBook() {
@@ -383,8 +558,10 @@ function saveCurrentCardToBook() {
     const card = { id, data: currentViewingCard.data, sourceUrl, savedAt: new Date().toISOString() };
     const index = cards.findIndex(saved => saved.id === id);
     if (index >= 0) cards[index] = card; else cards.push(card);
-    localStorage.setItem(CARD_BOOK_STORAGE_KEY, JSON.stringify(cards));
-    document.getElementById('save-card-btn').innerText = 'Card Saved';
+    if (!writeCardBook(cards)) return;
+    const button = document.getElementById('save-card-btn');
+    button.innerText = 'Card Saved';
+    setTimeout(setSaveCardButtonState, 1500);
     renderCardBook();
 }
 
@@ -461,7 +638,7 @@ document.getElementById('add-node-btn').addEventListener('click', () => {
 
 document.getElementById('profile-img-url').addEventListener('input', (e) => {
     const value = e.target.value.trim();
-    document.getElementById('profile-img-preview').src = value || 'https://via.placeholder.com/150';
+    document.getElementById('profile-img-preview').src = safeImageUrl(value);
 });
 
 const profileIntroUrlInput = document.getElementById('profile-intro-urls');
@@ -481,8 +658,13 @@ document.getElementById('save-btn').addEventListener('click', () => {
         profileData.org = document.getElementById('profile-org').value;
         profileData.edu = document.getElementById('profile-edu').value;
         profileData.intro = document.getElementById('profile-intro').value;
-        profileData.introUrl = document.getElementById('profile-intro-urls').value.trim();
-        profileData.imgUrl = document.getElementById('profile-img-url').value || 'https://via.placeholder.com/150';
+        const introUrl = document.getElementById('profile-intro-urls').value.trim();
+        if (introUrl && !/^https?:\/\//i.test(introUrl)) {
+            alert('Intro URL must start with http:// or https://');
+            return;
+        }
+        profileData.introUrl = introUrl;
+        profileData.imgUrl = document.getElementById('profile-img-url').value.trim(); // keep empty instead of saving a placeholder URL
         updateIdentityCard();
     } else if (currentNodeData) {
         const selectedParentOptions = Array.from(document.getElementById('node-parent').selectedOptions).map(option => option.value);

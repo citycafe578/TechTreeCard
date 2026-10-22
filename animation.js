@@ -1,3 +1,14 @@
+// Inline SVG avatar placeholder (the old via.placeholder.com host is gone)
+const AVATAR_PLACEHOLDER = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="150" height="150" viewBox="0 0 150 150">' +
+    '<rect width="150" height="150" fill="#2a2a2a"/><circle cx="75" cy="58" r="26" fill="#555"/>' +
+    '<path d="M25 135c4-30 26-44 50-44s46 14 50 44z" fill="#555"/></svg>');
+
+// Only allow http(s) image URLs coming from (possibly untrusted) card data
+function safeImageUrl(url) {
+    return /^https?:\/\//i.test(url || '') ? url : AVATAR_PLACEHOLDER;
+}
+
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -153,6 +164,13 @@ function createNodeMesh(id, parentIds, x, y, z, title, desc, tags, category = 's
     updateSelectionVisual();
 }
 
+// Stable pseudo-random number from any id string (ids may be imported and not follow node_<timestamp>_<n>)
+function idSeed(id) {
+    let hash = 0;
+    for (const ch of String(id)) hash = (hash * 31 + ch.codePointAt(0)) % 100000;
+    return hash;
+}
+
 function applyForceLayout() {
     if (isSearching || !isPhysicsEnabled) return;
     const kRepel = 25, kAttract = 0.05, damping = 0.82, gravity = 0.015;
@@ -192,7 +210,7 @@ function applyForceLayout() {
             const deltaZ = is2DMode ? 0 : (parentZ - node.targetZ);
             const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ) || 0.1;
 
-            const customSpringLength = 5 + (Math.sin(node.id.split('_')[1] || 1) * 2.5);
+            const customSpringLength = 5 + (Math.sin(idSeed(node.id)) * 2.5);
             const attractionForce = (distance - customSpringLength) * kAttract;
             const forceX = (deltaX / distance) * attractionForce;
             const forceY = (deltaY / distance) * attractionForce;
@@ -431,6 +449,7 @@ function handleScenePointerDown(event) {
         inputs.forEach(element => element.disabled = isPreviewMode);
         document.getElementById('save-btn').style.display = isPreviewMode ? 'none' : 'block';
         document.getElementById('save-card-btn').style.display = isPreviewMode && currentViewingCard ? 'block' : 'none';
+        if (typeof setSaveCardButtonState === 'function') setSaveCardButtonState();
 
         if (clickedObj === centerSphere) {
             isEditingProfile = true;
@@ -446,7 +465,7 @@ function handleScenePointerDown(event) {
             document.getElementById('profile-intro-urls').value = profileData.introUrl || '';
             document.getElementById('profile-img-url').style.display = isPreviewMode ? 'none' : 'block';
             document.getElementById('profile-img-url').value = profileData.imgUrl || '';
-            document.getElementById('profile-img-preview').src = profileData.imgUrl || 'https://via.placeholder.com/150';
+            document.getElementById('profile-img-preview').src = safeImageUrl(profileData.imgUrl);
         } else {
             isEditingProfile = false;
             document.getElementById('skill-view').style.display = 'block';
